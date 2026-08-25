@@ -1,0 +1,150 @@
+---
+
+title: "Laboratório 2"
+output: html_document
+---
+date: "2026-08-24"
+---
+
+```{r}
+library(readr)
+library(dplyr)
+library(ggplot2)
+
+```
+
+##### 1. Quais são as estatísticas suficientes para a determinação do percentual de vôos atrasados na chegada (ARRIVAL_DELAY > 10)?
+para calcular o percentual de voos atrasados em um conjunto de dados processado em lotes (chunks), precisamos extrair duas estatísticas suficientes para cada grupo (Mês, Dia e Cia. Aérea):n_total: O número total de voos no grupo (calculado via n()).n_atrasados: O número total de voos com atraso superior a 10 minutos (calculado via sum(ARRIVAL_DELAY > 10)).Ao final do processamento de todos os lotes, somam-se os totais de cada estatística para obter a métrica final:$$\text{Percentual} = \frac{\sum n\_atrasados}{\sum n\_total}$$
+
+####2.Crie uma função chamada getStats que, para um conjunto de qualquer tamanho de dados provenientes de flights.csv.zip, execute as seguintes tarefas (usando apenas verbos do dplyr:Filtre o conjunto de dados de forma que contenha apenas observações das seguintes Cias. Aéreas: AA, DL, UA e US;Remova observações que tenham valores faltantes em campos de interesse;Agrupe o conjunto de dados resultante de acordo com: dia, mês e cia. aérea;Para cada grupo em b., determine as estatísticas suficientes apontadas no item 1. e os retorne como um objeto da classe tibble;A função deve receber apenas dois argumentos:input: o conjunto de dados (referente ao lote em questão);pos: argumento de posicionamento de ponteiro dentro da base de dados. Apesar de existir na função, este argumento não será empregado internamente. É importante observar que, sem a definição deste argumento, será impossível fazer a leitura por partes.
+
+```{r}
+library(dplyr)
+
+getStats <- function(input, pos) {
+  input %>%
+    filter(CARRIER %in% c("AA", "DL", "UA", "US")) %>%
+    filter(!is.na(ARRIVAL_DELAY)) %>%
+    group_by(DAY, MONTH, CARRIER) %>%
+    summarise(
+      total_voos = n(),
+      atrasados = sum(ARRIVAL_DELAY > 10, na.rm = TRUE),
+      .groups = "drop"
+    )
+}
+```
+
+######3.Utilize alguma função readr::read_***_chunked para importar o arquivo flights.csv.zipConfigure o tamanho do lote (chunk) para 100 mil registros;Configure a função de callback para instanciar DataFrames aplicando a função getStats criada acima;Configure o argumento col_types de forma que ele leia, diretamente do arquivo, apenas as colunas de interesse (veja nota de aula para identificar como realizar esta tarefa);
+```{r}
+library(readr)
+library(dplyr)
+
+col_carrier <- "AIRLINE"
+col_month <- "MONTH"
+col_day <- "DAY"
+col_delay <- "ARRIVAL_DELAY"
+
+getStats <- function(input) {
+  input %>%
+    filter(AIRLINE %in% c("AA", "DL", "UA", "US")) %>%
+    filter(!is.na(ARRIVAL_DELAY)) %>%
+    group_by(MONTH, DAY, AIRLINE) %>%
+    summarise(
+      total_voos = n(),
+      atrasados = sum(ARRIVAL_DELAY > 10, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    rename(CARRIER = AIRLINE)
+}
+
+cols_interesse <- cols_only(
+  AIRLINE = col_character(),
+  MONTH = col_integer(),
+  DAY = col_integer(),
+  ARRIVAL_DELAY = col_double()
+)
+
+# Leitura manual por partes
+resultados <- data.frame()
+chunk_size <- 100000
+skip <- 0
+
+while(TRUE) {
+  chunk <- read_csv("flights.csv", 
+                    col_types = cols_interesse,
+                    skip = ifelse(skip == 0, 0, skip + 1),
+                    n_max = chunk_size)
+  
+  if(nrow(chunk) == 0) break
+  
+  stats <- getStats(chunk)
+  resultados <- bind_rows(resultados, stats)
+  
+  skip <- skip + nrow(chunk)
+  print(paste("Processados:", skip, "registros"))
+}
+
+resultados <- resultados %>%
+  group_by(MONTH, DAY, CARRIER) %>%
+  summarise(total_voos = sum(total_voos), atrasados = sum(atrasados), .groups = "drop")
+
+print(head(resultados))
+```
+
+
+####4.Crie uma função chamada computeStats que:Combine as estatísticas suficientes para compor a métrica final de interesse (percentual de atraso por dia/mês/cia aérea);Retorne as informações em um tibble contendo apenas as seguintes colunas:Cia: sigla da companhia aérea;Data: data, no formato AAAA-MM-DD (dica: utilize o comando as.Date);Perc: percentual de atraso para aquela cia. aérea e data, apresentado como um número real no intervalo [0,1]
+
+
+```{r}
+computeStats <- function(stats) {
+  stats %>%
+    mutate(
+      Data = as.Date(paste(2015, MONTH, DAY, sep = "-")),
+      Perc = atrasados / total_voos
+    ) %>%
+    select(Cia = CARRIER, Data, Perc)
+}
+
+resultado_final <- computeStats(resultados)
+```
+
+#######5. Produza um mapa de calor em formato de calendário para cada Cia. Aérea.Instale e carregue os pacotes ggcal e ggplot2.Defina uma paleta de cores em modo gradiente. Utilize o comando scale_fill_gradient. A cor inicial da paleta deve ser #4575b4 e a cor final, #d73027. A paleta deve ser armazenada no objeto pal.Crie uma função chamada baseCalendario que recebe 2 argumentos a seguir: stats (tibble com resultados calculados na questão 4) e cia (sigla da Cia. Aérea de interesse). A função deverá:Criar um subconjunto de stats de forma a conter informações de atraso e data apenas da Cia. Aérea dada por cia.Para o subconjunto acima, montar a base do calendário, utilizando ggcal(x, y). Nesta notação, x representa as datas de interesse e y, os percentuais de atraso para as datas descritas em x.Retornar para o usuário a base do calendário criada acima.Executar a função baseCalendario para cada uma das Cias. Aéreas e armazenar os resultados, respectivamente, nas variáveis: cAA, cDL, cUA e cUS.Para cada uma das Cias. Aéreas, apresente o mapa de calor respectivo utilizando a combinação de camadas do ggplot2. Lembre-se de adicionar um título utilizando o comando ggtitle. Por exemplo, cXX + pal + ggtitle("Titulo").
+
+```{r}
+library(ggplot2)
+
+pal <- scale_fill_gradient(low = "#4575b4", high = "#d73027")
+
+baseCalendario <- function(stats, cia) {
+  sub <- stats %>% 
+    filter(Cia == cia) %>%
+    mutate(
+      semana = as.numeric(format(Data, "%U")),
+      dia_semana = as.numeric(format(Data, "%w"))
+    )
+  
+  ggplot(sub, aes(x = dia_semana, y = -semana)) +
+    geom_tile(aes(fill = Perc)) +
+    pal +
+    scale_x_continuous(breaks = 0:6, labels = c("Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sab")) +
+    labs(title = cia, x = "", y = "Semana") +
+    theme_minimal()
+}
+
+cAA <- baseCalendario(resultado_final, "AA")
+cDL <- baseCalendario(resultado_final, "DL")
+cUA <- baseCalendario(resultado_final, "UA")
+cUS <- baseCalendario(resultado_final, "US")
+
+print(cAA + ggtitle("American Airlines - Atrasos > 10 min"))
+print(cDL + ggtitle("Delta Airlines - Atrasos > 10 min"))
+print(cUA + ggtitle("United Airlines - Atrasos > 10 min"))
+print(cUS + ggtitle("US Airways - Atrasos > 10 min"))
+```
+
+```{r}
+Sys.setenv(TZ = "America/Sao_Paulo")
+Sys.time()
+```
+```
+
