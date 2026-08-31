@@ -1,0 +1,151 @@
+---
+title: "lista03"
+author: "Lucas Rocha"
+format: typst
+editor: visual
+---
+
+```{r}
+library(DBI)
+library(RSQLite)
+
+con <- dbConnect(RSQLite::SQLite(), "me315.sqlite")
+```
+
+1 Exiba os valores de STATE e FEE da tabela PRESERVE mas sem duplicados.
+```{sql connection=con}
+SELECT DISTINCT STATE, FEE 
+FROM PRESERVE;
+```
+
+2 Exiba todos os valores de DNO na tabela EMPLOYEE. Não exiba valores duplicados.
+```{sql connection=con}
+SELECT DISTINCT DNO 
+FROM EMPLOYEE;
+```
+
+3.Execute as QUERIES a seguir. Examine as tabelas resultantes e faça as observações relevantes
+```{sql connection=con}
+SELECT DNO, SALARY FROM EMPLOYEE;
+```
+
+```{sql connection=con}
+SELECT DISTINCT DNO, SALARY FROM EMPLOYEE;
+```
+```{sql connection=con}
+SELECT DISTINCT DNO, SALARY FROM EMPLOYEE ORDER BY DNO, SALARY;
+```
+A primeira consulta exibe todas as linhas da tabela EMPLOYEE, mantendo repetições de combinações de departamento e salário.
+
+A segunda consulta elimina as linhas com combinações idênticas de DNO e SALARY.
+
+A terceira consulta aplica a mesma filtragem sem duplicatas e ordena o resultado de forma crescente por DNO e SALARY.
+
+4.Exiba todas as informações sobre qualquer reserva natural em Montana que seja menor que 1.000 acres.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE STATE = 'MT' AND ACRES < 1000;
+```
+5.Exiba todas as informações sobre qualquer reserva natural cujo valor de ACRES esteja entre 1200 e 15000, inclusive.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE ACRES BETWEEN 1200 AND 15000;
+```
+6.Exiba todas as informações sobre qualquer reserva natural localizada em Montana que não possua taxa de entrada e seja maior que 10.000 acres.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE STATE = 'MT' AND FEE = 0 AND ACRES > 10000;
+```
+7.Exiba todas as informações sobre as reservas naturais localizadas em Montana ou Massachusetts.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE STATE IN ('MT', 'MA');
+```
+8.Exiba todas as informações sobre qualquer reserva natural localizada em Montana ou qualquer reserva que seja menor que 1.000 acres.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE STATE = 'MT' OR ACRES < 1000;
+```
+9.Exiba o número e o nome de qualquer reserva natural que possua taxa de entrada que não seja igual a zero.
+```{sql connection=con}
+SELECT PNO, PNAME 
+FROM PRESERVE 
+WHERE FEE <> 0;
+```
+10.Exiba o número e o nome das reservas naturais que não possuem taxa de entrada de US$ 3,00 e não possuem taxa de US$ 10,00.
+---
+```{sql connection=con}
+SELECT PNO, PNAME 
+FROM PRESERVE 
+WHERE FEE NOT IN (3, 10);
+```
+11.Exiba todas as informações sobre qualquer reserva natural localizada no Arizona que não possua taxa de entrada, ou qualquer reserva que seja menor que 100 acres (independentemente de seus valores de STATE e FEE).
+`
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE (STATE = 'AZ' AND FEE = 0) OR ACRES < 100;
+```
+
+12.Exiba todas as informações sobre qualquer reserva natural que seja menor que 1.000 acres e tenha taxa de entrada de zero dólares ou esteja localizada no Arizona.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE ACRES < 1000 AND (FEE = 0 OR STATE = 'AZ');
+```
+
+13.Selecione todas as informações sobre qualquer reserva natural com taxa de entrada que não seja maior que zero, ou qualquer outra reserva, independentemente de sua taxa, que esteja localizada em Montana e seja maior que 1.000 acres.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE FEE <= 0 OR (STATE = 'MT' AND ACRES > 1000);
+```
+
+14.Exiba todas as informações sobre todas as reservas naturais, exceto aquelas reservas de Montana sem taxa de entrada.
+```{sql connection=con}
+SELECT * 
+FROM PRESERVE 
+WHERE NOT (STATE = 'MT' AND FEE = 0);
+```
+15.As seguintes cláusulas WHERE são logicamente equivalentes?
+WHERE STATE = 'MA' AND (ACRES > 1000 OR FEE = 0.0)
+WHERE (STATE = 'MA' AND ACRES > 1000) OR (STATE = 'MA' AND FEE = 0.0)
+
+Resposta: Sim, são equivalentes.
+
+A primeira opção exige que a reserva seja de Massachusetts e cumpra pelo menos uma das outras duas condições (ter mais de 1000 acres ou ser gratuita). A segunda opção divide isso em duas possibilidades separadas: ser uma reserva de Massachusetts com mais de 1000 acres, ou ser uma reserva de Massachusetts e gratuita. O resultado final filtrado pelo banco de dados é exatamente o mesmo.
+
+16.As seguintes cláusulas WHERE são logicamente equivalentes?
+WHERE STATE = 'MA' OR (ACRES > 1000 AND FEE = 0.0)
+WHERE (STATE = 'MA' OR ACRES > 1000) AND (STATE = 'MA' OR FEE = 0.0)
+
+A primeira frase aceita qualquer reserva de Massachusetts ou qualquer reserva que seja ao mesmo tempo grande e gratuita. A segunda frase distribui a exigência de Massachusetts para ambos os lados, garantindo que o resultado final selecione rigorosamente os mesmos registros.
+
+17.As seguintes cláusulas WHERE são logicamente equivalentes?
+WHERE NOT (ACRES < 50 AND STATE = 'MA')
+WHERE NOT ACRES < 50 AND NOT STATE = 'MA'
+WHERE ACRES >= 50 OR STATE <> 'MA'
+
+Resposta: Apenas a 1ª e a 3ª são equivalentes.
+
+Negar a frase "ser menor que 50 acres E ser de Massachusetts" significa que a reserva NÃO pode ter ambas as características ao mesmo tempo. Portanto, basta que ela tenha 50 acres ou mais, OU que seja de outro estado que não seja Massachusetts. A opção 2 está errada porque usou a palavra "E", o que exigiria que a reserva cumprisse as duas negações juntas de forma muito mais restritiva
+
+18.As seguintes cláusulas WHERE são logicamente equivalentes?
+WHERE NOT (ACRES < 50 OR STATE = 'MA')
+WHERE NOT ACRES < 50 OR NOT STATE = 'MA'
+WHERE NOT ACRES < 50 AND NOT STATE = 'MA'
+
+Resposta: Apenas a 1ª e a 3ª são equivalentes.
+
+A primeira instrução exige negar que a reserva seja menor que 50 acres OU de Massachusetts. Para que isso seja verdade, ela obrigatoriamente NÃO pode ser menor que 50 acres E TAMBÉM NÃO pode ser de Massachusetts (exatamente o que diz a opção 3). A opção 2 está errada porque troca o "E" pelo "OU", deixando a regra incorreta.
+
+```{r}
+Sys.setenv(TZ = "America/Sao_Paulo")
+Sys.time()
+```
+
