@@ -65,9 +65,6 @@ tabela_trajeto_geo <- tabela_trajeto %>%
 
 Transformação dos pontos em segmentos de linha geográficos (sf)
 ```{r}
-# ==============================================================================
-# Chunk 5: Transformação dos pontos em segmentos de linha geográficos (sf)
-# ==============================================================================
 lista_geometrias <- vector("list", nrow(tabela_trajeto_geo))
 for (i in seq_len(nrow(tabela_trajeto_geo))) {
   matriz_coordenadas <- matrix(
