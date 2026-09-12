@@ -1,0 +1,247 @@
+---
+title: "lab05"
+author: "Lucas rocha"
+format: typst
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(leaflet)
+library(sf)
+```
+Leitura e filtragem em blocos (aeronave N431WN)
+```{r}
+tail_number_alvo <- "N431WN"
+arquivo_voos <- "flights.csv.zip"
+
+tabela_voos_bruta <- read_csv_chunked(
+  file = arquivo_voos,
+  callback = DataFrameCallback$new(function(chunk, index) {
+    chunk %>% filter(TAIL_NUMBER == tail_number_alvo)
+  }),
+  chunk_size = 500000,
+  show_col_types = FALSE
+)
+```
+
+Limpeza de dados, cálculo de datas/horários e ordenação
+```{r}
+tabela_trajeto <- tabela_voos_bruta %>%
+  filter(CANCELLED == 0, DIVERTED == 0) %>%
+  mutate(
+    DEPARTURE_TIME_STR = sprintf("%04d", as.integer(DEPARTURE_TIME)),
+    HORA_PARTIDA = substr(DEPARTURE_TIME_STR, 1, 2),
+    MINUTO_PARTIDA = substr(DEPARTURE_TIME_STR, 3, 4),
+    DATA_HORA_PARTIDA = make_datetime(
+      year = YEAR, 
+      month = MONTH, 
+      day = DAY, 
+      hour = as.numeric(HORA_PARTIDA), 
+      min = as.numeric(MINUTO_PARTIDA)
+    )
+  ) %>%
+  arrange(DATA_HORA_PARTIDA) %>%
+  mutate(
+    DURACAO_HORAS = AIR_TIME / 60,
+    VELOCIDADE_MEDIA_MPH = if_else(DURACAO_HORAS > 0, DISTANCE / DURACAO_HORAS, NA_real_)
+  )
+```
+
+Leitura de aeroportos e junção das coordenadas de Origem/Destino
+```{r}
+tabela_aeroportos <- read_csv("airports.csv", show_col_types = FALSE) %>%
+  select(IATA_CODE, AIRPORT, CITY, STATE, LATITUDE, LONGITUDE)
+
+tabela_trajeto_geo <- tabela_trajeto %>%
+  left_join(tabela_aeroportos, by = c("ORIGIN_AIRPORT" = "IATA_CODE")) %>%
+  rename(NOME_ORIGEM = AIRPORT, LAT_ORIGEM = LATITUDE, LONG_ORIGEM = LONGITUDE) %>%
+  left_join(tabela_aeroportos, by = c("DESTINATION_AIRPORT" = "IATA_CODE")) %>%
+  rename(NOME_DESTINO = AIRPORT, LAT_DESTINO = LATITUDE, LONG_DESTINO = LONGITUDE) %>%
+  filter(!is.na(LAT_ORIGEM) & !is.na(LAT_DESTINO))
+```
+
+Transformação dos pontos em segmentos de linha geográficos (sf)
+```{r}
+# ==============================================================================
+# Chunk 5: Transformação dos pontos em segmentos de linha geográficos (sf)
+# ==============================================================================
+lista_geometrias <- vector("list", nrow(tabela_trajeto_geo))
+for (i in seq_len(nrow(tabela_trajeto_geo))) {
+  matriz_coordenadas <- matrix(
+    c(
+      tabela_trajeto_geo$LONG_ORIGEM[i], tabela_trajeto_geo$LAT_ORIGEM[i],
+      tabela_trajeto_geo$LONG_DESTINO[i], tabela_trajeto_geo$LAT_DESTINO[i]
+    ),
+    ncol = 2, byrow = TRUE
+  )
+  lista_geometrias[[i]] <- st_linestring(matriz_coordenadas)
+}
+segmentos_rotas_sf <- st_sf(
+  tabela_trajeto_geo, 
+  geometry = st_sfc(lista_geometrias, crs = 4326)
+)
+aeroportos_unicos <- bind_rows(
+  tabela_trajeto_geo %>% select(IATA = ORIGIN_AIRPORT, NOME = NOME_ORIGEM, LAT = LAT_ORIGEM, LONG = LONG_ORIGEM),
+  tabela_trajeto_geo %>% select(IATA = DESTINATION_AIRPORT, NOME = NOME_DESTINO, LAT = LAT_DESTINO, LONG = LONG_DESTINO)
+) %>% distinct(IATA, .keep_all = TRUE)
+```
+
+Geração do mapa interativo Leaflet
+```{r}
+paleta_velocidade <- colorNumeric(
+  palette = "YlOrRd", 
+  domain = segmentos_rotas_sf$VELOCIDADE_MEDIA_MPH,
+  na.color = "#808080"
+)
+
+mapa_trajeto <- leaflet() %>%
+  addProviderTiles(providers$CartoDB.Positron) %>%
+  addCircleMarkers(
+    data = aeroportos_unicos,
+    lng = ~LONG, lat = ~LAT,
+    radius = 5, color = "#2C3E50", fillOpacity = 0.8,
+    popup = ~paste0("<b>Aeroporto: </b>", NOME, " (", IATA, ")")
+  ) %>%
+  addPolylines(
+    data = segmentos_rotas_sf,
+    color = ~paleta_velocidade(VELOCIDADE_MEDIA_MPH),
+    weight = ~pmax(2, VELOCIDADE_MEDIA_MPH / 120),
+    opacity = 0.6,
+    popup = ~paste0(
+      "<b>Trajeto: </b>", ORIGIN_AIRPORT, " ➔ ", DESTINATION_AIRPORT, "<br>",
+      "<b>Data Partida: </b>", DATA_HORA_PARTIDA, "<br>",
+      "<b>Distância: </b>", DISTANCE, " milhas<br>",
+      "<b>Velocidade Média: </b>", round(VELOCIDADE_MEDIA_MPH, 1), " mph"
+    )
+  ) %>%
+  addLegend(
+    pal = paleta_velocidade,
+    values = segmentos_rotas_sf$VELOCIDADE_MEDIA_MPH,
+    title = "Velocidade Média (mph)",
+    position = "bottomright"
+  )
+```
+
+Função analisa_aeronave Modularizada
+```{r}
+analisa_aeronave <- function(tail_number, 
+                             arquivo = file.path("dados", "flights.csv.zip"),
+                             arquivo_airports = file.path("dados", "airports.csv")) {
+  
+  tabela_voos_bruta <- read_csv_chunked(
+    file = arquivo,
+    callback = DataFrameCallback$new(function(chunk, index) {
+      chunk %>% filter(TAIL_NUMBER == tail_number)
+    }),
+    chunk_size = 500000,
+    show_col_types = FALSE
+  )
+
+  tabela_trajeto <- tabela_voos_bruta %>%
+    filter(CANCELLED == 0, DIVERTED == 0) %>%
+    mutate(
+      DEPARTURE_TIME_STR = sprintf("%04d", as.integer(DEPARTURE_TIME)),
+      HORA_PARTIDA = substr(DEPARTURE_TIME_STR, 1, 2),
+      MINUTO_PARTIDA = substr(DEPARTURE_TIME_STR, 3, 4),
+      DATA_HORA_PARTIDA = make_datetime(
+        year = YEAR, month = MONTH, day = DAY, 
+        hour = as.numeric(HORA_PARTIDA), min = as.numeric(MINUTO_PARTIDA)
+      )
+    ) %>%
+    arrange(DATA_HORA_PARTIDA) %>%
+    mutate(
+      DURACAO_HORAS = AIR_TIME / 60,
+      VELOCIDADE_MEDIA_MPH = if_else(DURACAO_HORAS > 0, DISTANCE / DURACAO_HORAS, NA_real_)
+    )
+
+  tabela_aeroportos <- read_csv(arquivo_airports, show_col_types = FALSE) %>%
+    select(IATA_CODE, AIRPORT, CITY, STATE, LATITUDE, LONGITUDE)
+
+  tabela_trajeto_geo <- tabela_trajeto %>%
+    left_join(tabela_aeroportos, by = c("ORIGIN_AIRPORT" = "IATA_CODE")) %>%
+    rename(NOME_ORIGEM = AIRPORT, LAT_ORIGEM = LATITUDE, LONG_ORIGEM = LONGITUDE) %>%
+    left_join(tabela_aeroportos, by = c("DESTINATION_AIRPORT" = "IATA_CODE")) %>%
+    rename(NOME_DESTINO = AIRPORT, LAT_DESTINO = LATITUDE, LONG_DESTINO = LONGITUDE) %>%
+    filter(!is.na(LAT_ORIGEM) & !is.na(LAT_DESTINO))
+
+  lista_geometrias <- vector("list", nrow(tabela_trajeto_geo))
+  for (i in seq_len(nrow(tabela_trajeto_geo))) {
+    matriz_coordenadas <- matrix(
+      c(
+        tabela_trajeto_geo$LONG_ORIGEM[i], tabela_trajeto_geo$LAT_ORIGEM[i],
+        tabela_trajeto_geo$LONG_DESTINO[i], tabela_trajeto_geo$LAT_DESTINO[i]
+      ),
+      ncol = 2, byrow = TRUE
+    )
+    lista_geometrias[[i]] <- st_linestring(matriz_coordenadas)
+  }
+
+  segmentos_rotas_sf <- st_sf(
+    tabela_trajeto_geo, 
+    geometry = st_sfc(lista_geometrias, crs = 4326)
+  )
+
+  aeroportos_unicos <- bind_rows(
+    tabela_trajeto_geo %>% select(IATA = ORIGIN_AIRPORT, NOME = NOME_ORIGEM, LAT = LAT_ORIGEM, LONG = LONG_ORIGEM),
+    tabela_trajeto_geo %>% select(IATA = DESTINATION_AIRPORT, NOME = NOME_DESTINO, LAT = LAT_DESTINO, LONG = LONG_DESTINO)
+  ) %>% distinct(IATA, .keep_all = TRUE)
+
+  paleta_velocidade <- colorNumeric(
+    palette = "YlOrRd", 
+    domain = segmentos_rotas_sf$VELOCIDADE_MEDIA_MPH,
+    na.color = "#808080"
+  )
+
+  mapa <- leaflet() %>%
+    addProviderTiles(providers$CartoDB.Positron) %>%
+    addCircleMarkers(
+      data = aeroportos_unicos,
+      lng = ~LONG, lat = ~LAT,
+      radius = 5, color = "#2C3E50", fillOpacity = 0.8,
+      popup = ~paste0("<b>Aeroporto: </b>", NOME, " (", IATA, ")")
+    ) %>%
+    addPolylines(
+      data = segmentos_rotas_sf,
+      color = ~paleta_velocidade(VELOCIDADE_MEDIA_MPH),
+      weight = ~pmax(2, VELOCIDADE_MEDIA_MPH / 120),
+      opacity = 0.6,
+      popup = ~paste0(
+        "<b>Etapa: </b>", row_number(), "<br>",
+        "<b>Trajeto: </b>", ORIGIN_AIRPORT, " ➔ ", DESTINATION_AIRPORT, "<br>",
+        "<b>Data Partida: </b>", DATA_HORA_PARTIDA, "<br>",
+        "<b>Distância: </b>", DISTANCE, " milhas<br>",
+        "<b>Velocidade Média: </b>", round(VELOCIDADE_MEDIA_MPH, 1), " mph"
+      )
+    ) %>%
+    addLegend(
+      pal = paleta_velocidade,
+      values = segmentos_rotas_sf$VELOCIDADE_MEDIA_MPH,
+      title = "Velocidade Média (mph)",
+      position = "bottomright"
+    )
+
+  return(list(
+    tabela_trajeto = tabela_trajeto,
+    mapa_trajeto = mapa
+  ))
+}
+```
+
+Visualizar as primeiras linhas da tabela ordenada
+```{r}
+head(tabela_trajeto)
+```
+
+Exibição do Mapa Final
+```{r}
+mapa_trajeto
+```
+
+```{r}
+Sys.setenv(TZ = "America/Sao_Paulo")
+Sys.time()
+```
+
