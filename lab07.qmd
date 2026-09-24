@@ -1,0 +1,84 @@
+---
+title: "lab07"
+author: "Lucas Rocha"
+format: typst
+editor: visual
+---
+
+```{r}
+library(DBI)
+library(RSQLite)
+conn <- dbConnect(RSQLite::SQLite(), "database.sqlite3")
+```
+
+1.Quem são e quantos são os professores que lecionaram disciplinas cujo tópico era estatística
+```{sql connection=conn}
+SELECT DISTINCT i.id, i.name
+FROM instructors i
+JOIN teachings t ON i.id = t.instructor_id
+JOIN sections sec ON t.section_uuid = sec.uuid
+JOIN course_offerings co ON sec.course_offering_uuid = co.uuid
+JOIN subject_memberships sm ON co.uuid = sm.course_offering_uuid
+JOIN subjects s ON sm.subject_code = s.code
+WHERE s.abbreviation = 'STAT'
+ORDER BY i.name;
+```
+R:1 Total sao 379 professores 
+
+
+2.O GPA americano é definido numa escala de 0 a 4, em que A = 4, AB = 3.5, B = 3, BC = 2.5, C = 2, D = 1 e F = 0. Determinando a nota média de cada oferecimento pela ponderação da quantidade de alunos em cada extrato com os valores numéricos de cada conceito, indique (no que se referente a disciplinas no assunto de estatística):
+Quem é o professor mais difícil?
+Quem é o professor mais fácil?
+Qual é a disciplina mais difícil?
+Qual é a disciplina mais fácil?
+```{sql connection=conn}
+WITH gpa_professores AS (
+    SELECT 
+        i.name AS nome,
+        SUM(g.a_count * 4.0 + g.ab_count * 3.5 + g.b_count * 3.0 + g.bc_count * 2.5 + g.c_count * 2.0 + g.d_count * 1.0) / 
+        CAST(SUM(g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count) AS FLOAT) AS gpa_medio
+    FROM grade_distributions g
+    JOIN sections sec ON g.course_offering_uuid = sec.course_offering_uuid AND g.section_number = sec.number
+    JOIN teachings t ON sec.uuid = t.section_uuid
+    JOIN instructors i ON t.instructor_id = i.id
+    JOIN subject_memberships sm ON g.course_offering_uuid = sm.course_offering_uuid
+    JOIN subjects s ON sm.subject_code = s.code
+    WHERE s.abbreviation = 'STAT'
+    GROUP BY i.id, i.name
+    HAVING SUM(g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count) > 0
+),
+gpa_disciplinas AS (
+    SELECT 
+        c.name AS nome,
+        SUM(g.a_count * 4.0 + g.ab_count * 3.5 + g.b_count * 3.0 + g.bc_count * 2.5 + g.c_count * 2.0 + g.d_count * 1.0) / 
+        CAST(SUM(g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count) AS FLOAT) AS gpa_medio
+    FROM grade_distributions g
+    JOIN course_offerings co ON g.course_offering_uuid = co.uuid
+    JOIN courses c ON co.course_uuid = c.uuid
+    JOIN subject_memberships sm ON co.uuid = sm.course_offering_uuid
+    JOIN subjects s ON sm.subject_code = s.code
+    WHERE s.abbreviation = 'STAT'
+    GROUP BY c.uuid, c.name
+    HAVING SUM(g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count) > 0
+)
+
+SELECT * FROM (SELECT 'Prof. Mais Difícil' AS tipo, nome, gpa_medio FROM gpa_professores ORDER BY gpa_medio ASC LIMIT 1)
+UNION ALL
+SELECT * FROM (SELECT 'Prof. Mais Fácil' AS tipo, nome, gpa_medio FROM gpa_professores ORDER BY gpa_medio DESC LIMIT 1)
+UNION ALL
+SELECT * FROM (SELECT 'Disc. Mais Difícil' AS tipo, nome, gpa_medio FROM gpa_disciplinas ORDER BY gpa_medio ASC LIMIT 1)
+UNION ALL
+SELECT * FROM (SELECT 'Disc. Mais Fácil' AS tipo, nome, gpa_medio FROM gpa_disciplinas ORDER BY gpa_medio DESC LIMIT 1);
+```
+
+```{r}
+# Desconecta do banco de dados SQLite
+dbDisconnect(conn)
+```
+
+```{r}
+Sys.setenv(TZ = "America/Sao_Paulo")
+Sys.time()
+```
+
+
