@@ -1,0 +1,100 @@
+---
+title: "Lab09"
+format: pdf
+editor: visual
+---
+
+
+
+```{python}
+import pandas as pd
+import numpy as np
+from plotnine import *
+from plotnine.data import diamonds
+
+df_diamonds = diamonds.copy()
+df_diamonds.head()
+```
+
+1.Importe o conjunto de dados diamonds, cujo arquivo está disponível no website da disciplina.
+
+```{python}
+import pandas as pd
+import numpy as np
+from plotnine import *
+from plotnine.data import diamonds
+
+df_diamonds = diamonds.copy()
+
+print(df_diamonds.head())
+```
+
+2.Crie uma visualização de dados que descreva a associação existente entre as variáveis peso (carat) e preço (price). Que ações você tomou para garantir que você produziu um gráfico de boa qualidade? Escreva um parágrafo comunicando os seus achados.
+```{python}
+(
+    ggplot(df_diamonds, aes(x='carat', y='price'))
+    + geom_point(alpha=0.1, size=0.8, color='#1f77b4')
+    + geom_smooth(method='lowess', color='red', se=False)
+    + scale_x_log10()
+    + scale_y_log10()
+    + labs(
+        title="Relação entre Peso (Carat) e Preço de Diamantes",
+        x="Peso (Carat) - Escala Log10",
+        y="Preço (USD) - Escala Log10"
+    )
+    + theme_minimal()
+)
+```
+
+R: Para garantir um gráfico de boa qualidade e sem poluição visual (overplotting), apliquei transparência (alpha=0.1) e redução no tamanho dos pontos (size=0.8), além de utilizar escala logarítmica (log10) nos eixos $X$ e $Y$ para ajustar a assimetria dos dados e adicionei uma curva de tendência LOWESS para destacar o padrão geral.
+ Podemos concluir que existe uma forte relação positiva e exponencial entre peso (carat) e preço (price), indicando que o valor do diamante cresce em ritmo muito superior ao aumento de sua massa. Além disso, observam-se concentrações verticais de pontos em números redondos de quilates (ex: 0.5, 0.7, 1.0, 1.5 e 2.0), demonstrando que o mercado de lapidação precifica com saltos de valor ao atingir marcas inteiras ou fracionárias marcantes.
+
+
+3.A relação identificada na questão anterior é a mesma relação presente nos diferentes cortes de diamantes? Crie uma visualização que demonstre seus achados eficientemente. Descreva sua conclusão em um parágrafo
+```{python}
+(
+    ggplot(df_diamonds, aes(x='carat', y='price', color='cut'))
+    + geom_point(alpha=0.08, size=0.5)
+    + geom_smooth(method='lm', color='black', linetype='dashed', se=False)
+    + scale_x_log10()
+    + scale_y_log10()
+    + facet_wrap('~cut', ncol=3)
+    + labs(
+        title="Relação Peso vs Preço por Qualidade de Corte",
+        x="Peso (Carat) - Log10",
+        y="Preço (USD) - Log10"
+    )
+    + theme_minimal()
+    + theme(legend_position='none')
+)
+```
+
+R: Sim, a relação positiva e exponencial entre peso e preço é a mesma em todos os cortes. Em todas as categorias, a inclinação das retas é praticamente idêntica, confirmando que o peso dita a alta do valor em qualquer grupo. A única diferença é o patamar: para o mesmo peso, cortes superiores (Ideal e Premium) custam ligeiramente mais do que o corte Fair.
+
+
+4.Crie uma visualização que mostre a relação entre preço e peso do diamante, considerando as diferentes combinações de qualidade de corte, cor e clareza do diamante. Quais foram as dificuldades encontradas? A relação entre preço e peso é a mesma para diferentes configurações de diamantes?
+```{python}
+(
+    ggplot(df_diamonds, aes(x='carat', y='price', color='clarity'))
+    + geom_point(alpha=0.15, size=0.4)
+    + geom_smooth(method='lm', se=False, size=0.5)
+    + scale_x_log10()
+    + scale_y_log10()
+    + facet_grid('cut ~ color')
+    + labs(
+        title="Preço vs Peso por Corte (Linhas), Cor (Colunas) e Clareza (Cores)",
+        x="Peso (Carat) - Log10",
+        y="Preço (USD) - Log10",
+        color="Clareza"
+    )
+    + theme_minimal()
+    + theme(
+        figure_size=(12, 8),
+        strip_text=element_text(size=7),
+        axis_text_x=element_text(rotation=45, hjust=1)
+    )
+)
+```
+R: O principal desafio foi a alta poluição visual ao combinar 5 variáveis (280 subgrupos), resolvida dividindo o gráfico em uma matriz de subpainéis (facet_grid('cut ~ color')) e usando cores para a clareza.
+
+Conclusão: Sim, a tendência positiva entre peso e preço se mantém em todas as configurações. No entanto, o nível de preço muda bastante: combinações nobres (Cor D, Clareza IF) formam retas muito mais elevadas que as inferiores (Cor J, Clareza I1), mostrando que cor e clareza multiplicam o valor base do quilate.
